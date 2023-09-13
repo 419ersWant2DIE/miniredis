@@ -3,25 +3,29 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use tokio::sync::broadcast;
 use std::sync::Arc;
+use volo_gen::volo::example::ItemServiceClient;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 
-use anyhow::Error;
+use anyhow::{Error, Ok};
 
 pub const DEFAULT_ADDR: &str = "[::]:8080";
 
 pub struct SBox {
-	kv_pairs: HashMap<String, String>,
-	channels: HashMap<String, broadcast::Sender<String>>,
+	pub kv_pairs: HashMap<String, String>,
+	pub channels: HashMap<String, broadcast::Sender<String>>,
+	pub master_redis: Vec<ItemServiceClient>,
 }
 
 pub struct S {
-	sb: Arc<RwLock<SBox>>,
+	pub sb: Arc<RwLock<SBox>>,
 }
 
 impl S {
 	pub fn new() -> S {
 		S {
-			sb: Arc::new(RwLock::new(SBox{kv_pairs: HashMap::new(), channels: HashMap::new()}))
+			sb: Arc::new(RwLock::new(SBox{kv_pairs: HashMap::new(), channels: HashMap::new(), master_redis: Vec::new()}))
 		}
 	}
 }
@@ -32,154 +36,49 @@ unsafe impl Sync for S {}
 #[volo::async_trait]
 impl volo_gen::volo::example::ItemService for S {
 	async fn get_item(&self, _req: volo_gen::volo::example::GetItemRequest) -> ::core::result::Result<volo_gen::volo::example::GetItemResponse, ::volo_thrift::AnyhowError>{
-		let mut resp = volo_gen::volo::example::GetItemResponse {opcode: 0, key_channal: _req.key_channal.clone(), value_message: " ".into(), success: false};
-		match _req.opcode {
-			0 => {
-				let key: String = _req.key_channal.into();
-				match self.sb.read().unwrap().kv_pairs.get(&key) {
-					Some(value) => {
-						resp.opcode = 0;
-						resp.value_message = value.clone().into();
-						resp.success = true;
-					},
-					None => {
-						resp.opcode = 0;
-						resp.success = false;
-					}
-				}
-			},
-			1 => {
-				let key: String = _req.key_channal.into();
-				let val: String = _req.value_message.into();
-				let mut is_in: bool = false;
-				{
-					match self.sb.read().unwrap().kv_pairs.get(&key) {
-						Some(_) => {
-							is_in = true;
-						},
-						None => {
+		// 创建一个hash
+		let mut hash = DefaultHasher::new();
 
-						}
-					}
-				}
-				if is_in {
-					resp.opcode = 1;
-					resp.success = false;
-				}
-				else {
-					self.sb.write().unwrap().kv_pairs.insert(key, val);
-					resp.opcode = 1;
-					resp.success = true;
-				}
+		// 获得hash值
+		let hash_code = { 
+			_req.key_channal.clone().as_str().hash(&mut hash);
+			hash.finish()
+		};
+		// 获得主节点的个数
+		let master_num = { self.sb.read().unwrap().master_redis.len() };
+
+		// 获得将要访问的节点的id
+		let master_id = ((hash_code as usize) + (_req.opcode as usize)) % master_num; 
+
+		// 获得访问节点的客户端
+		let rpc_cli = { self.sb.read().unwrap().master_redis[master_id].clone() };
+		match rpc_cli.get_item(_req).await {
+			::core::result::Result::Ok(resp) => {
+				Ok(resp)
 			},
-			2 => {
-				let key: String = _req.key_channal.into();
-				match self.sb.write().unwrap().kv_pairs.remove(&key) {
-					Some(_v) => {
-						resp.opcode = 2;
-						resp.success = true;
-					},
-					None => {
-						resp.opcode = 2;
-						resp.success = false;
-					}
-				} 
-			},
-			3 => {
-				resp.opcode = 3;
-				resp.value_message = _req.value_message.clone();
-				resp.success = true;
-			},
-			4 => {
-				let key: String = _req.key_channal.into();
-				let (mut _tx, mut rx) = broadcast::channel(16);
-				let mut has_channel: bool = false;
-				{
-					match {self.sb.read().unwrap().channels.get(&key)} {
-						Some(get_tx) => {
-							has_channel = true;
-							rx = get_tx.subscribe();
-						},
-						None => {
-							
-						},
-					}
-				}
-				if has_channel {
-					let mes = rx.recv().await;
-					match mes {
-						Ok(m) => {
-							resp.opcode = 4;
-							resp.value_message = m.clone().into();
-							resp.success = true;
-						},
-						Err(_e) => {
-							resp.opcode = 4;
-							resp.success = false;
-						}
-					}
-				} else {
-					{
-						self.sb.write().unwrap().channels.insert(key, _tx);
-					}
-					let mes = rx.recv().await;
-					match mes {
-						Ok(m) => {
-							resp.opcode = 4;
-							resp.value_message = m.clone().into();
-							resp.success = true;
-						},
-						Err(_e) => {
-							resp.opcode = 4;
-							resp.success = false;
-						}
-					}
-				}
+			::core::result::Result::Err(e) => {
+				Err(::volo_thrift::AnyhowError::from(anyhow::Error::msg(e)))
 			}
-			5 => {
-				let key: String = _req.key_channal.into();
-				if let Some(tx) = {self.sb.read().unwrap().channels.get(&key)} {
-					let info = tx.send(_req.value_message.into_string());
-					match info {
-						Ok(num) => {
-							resp.opcode = 5;
-							resp.success = true;
-							resp.value_message = get_string(num as u8).into();
-						},
-						Err(_) => {
-							resp.opcode = 5;
-							resp.success = false;
-						}
-					}
-				}
-				else {
-					resp.opcode = 5;
-					resp.success = false;
-				}
-			},
-			_ => {
-				tracing::info!("Invalic opcode");
-			},
 		}
-		Ok(resp)
+		
 	}
 }
 
-fn get_string(num: u8) -> String {
-	let mut num: u8 = num;
-	let mut res = String::new();
-	let mut pow: u8 = 1;
-	while pow <= num {
-		pow *= 10;
-	}
-	pow /= 10;
-	while pow != 0 {
-		res.push((num / pow + '0' as u8) as char);
-		num = num % pow;
-		pow = pow / 10;
-	}
-	res
-}
+// fn get_string(num: u8) -> String {
+// 	let mut num: u8 = num;
+// 	let mut res = String::new();
+// 	let mut pow: u8 = 1;
+// 	while pow <= num {
+// 		pow *= 10;
+// 	}
+// 	pow /= 10;
+// 	while pow != 0 {
+// 		res.push((num / pow + '0' as u8) as char);
+// 		num = num % pow;
+// 		pow = pow / 10;
+// 	}
+// 	res
+// }
 
 pub struct LogLayer;
 

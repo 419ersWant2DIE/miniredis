@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use std::net::SocketAddr;
 use std::env;
-use mini_redis::LogLayer;
+use redis_proxy::LogLayer;
 use std::io;
 use std::io::Write;
 // use volo_gen::volo::example::{GetItemResponse, get_item};

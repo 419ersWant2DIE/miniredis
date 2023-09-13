@@ -691,22 +691,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mini-redis"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "lazy_static",
- "pilota",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "volo",
- "volo-gen",
- "volo-thrift",
-]
-
-[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1241,6 +1225,22 @@ dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
  "num_cpus",
+]
+
+[[package]]
+name = "redis_proxy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "lazy_static",
+ "pilota",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "volo",
+ "volo-gen",
+ "volo-thrift",
 ]
 
 [[package]]
