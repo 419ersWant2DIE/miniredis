@@ -5,6 +5,7 @@ use volo_gen::volo::example::ItemServiceClient;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use rand::Rng;
+use log;
 
 
 use anyhow::{Error, Ok};
@@ -73,14 +74,17 @@ impl volo_gen::volo::example::ItemService for S {
 				node_id = node_id % node_num;
 				if node_id == node_num - 1 {
 					// get主节点
+					log::info!("{}", format!("master {}", master_id));
 					self.masters.read().unwrap()[master_id].clone()
 				} else {
 					// get从节点
+					log::info!("{}", format!("master {} slave {}", master_id, node_id));
 					self.slaves.read().unwrap()[master_id][node_id].clone()
 				}
 
 			},
 			false => {
+				log::info!("{}", format!("master {}", master_id));
 				self.masters.read().unwrap()[master_id].clone()
 			},
 		};

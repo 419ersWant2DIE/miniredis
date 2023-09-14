@@ -1234,6 +1234,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "lazy_static",
+ "log",
  "pilota",
  "rand",
  "tokio",

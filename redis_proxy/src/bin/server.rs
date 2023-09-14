@@ -3,11 +3,13 @@
 use std::net::SocketAddr;
 use redis_proxy::LogLayer;
 use std::env;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use redis_proxy::S;
 
 #[volo::main]
 async fn main() {
+    tracing_subscriber::registry().with(fmt::layer()).init();
     // 获得命令行参数
     let args: Vec<String> = env::args().collect();
     
