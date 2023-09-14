@@ -9,7 +9,7 @@ use rand::Rng;
 
 use anyhow::{Error, Ok};
 
-pub const DEFAULT_ADDR: &str = "[::]:8080";
+// pub const DEFAULT_ADDR: &str = "[::]:8080";
 
 pub struct S {
 	pub masters: Arc<RwLock<Vec<ItemServiceClient>>>,

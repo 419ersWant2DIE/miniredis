@@ -2,30 +2,46 @@
 
 use std::net::SocketAddr;
 use redis_proxy::LogLayer;
+use std::env;
 
-use redis_proxy::{S, DEFAULT_ADDR};
+use redis_proxy::S;
 
 #[volo::main]
 async fn main() {
-    // 创建存储ip的向量
-    let mut ip_vec: Vec<String> = Vec::new();
-    ip_vec.push("[::]:56342".into());
-    ip_vec.push("[::]:56343".into());
+    // 获得命令行参数
+    let args: Vec<String> = env::args().collect();
+    
+    // 获得本机的ip地址
+    let proxy_addr = args[1].clone();
 
-    // 创建存储从节点ip的向量，slave_ip[index]为ip_vec[index]对应的从节点ip向量
-    let mut slave_ip: Vec<Vec<String>> = Vec::new();
+    // 创建存储主从节点的ip的向量
+    let mut master_ip: Vec<String> = Vec::new();
+    let mut slave_ip : Vec<Vec<String>> = Vec::new();
 
-    slave_ip.push(Vec::new());
-    slave_ip.push(Vec::new());
 
-    slave_ip[0].push("[::]:63419".into());
-    slave_ip[1].push("[::]:63420".into());
+    // 获得主从节点的ip
+    let mut index: usize = 2;
+    while index < args.len() {
+        if args[index] == "-n" {
+            index = index + 1;
+        }
+        // 获得主节点的ip
+        master_ip.push(args[index].clone());
+        index = index + 1;
+
+        // 获得这个主节点对应的从节点ip
+        slave_ip.push(Vec::new());
+        while index < args.len() && args[index] != "-n" {
+            slave_ip[master_ip.len() - 1].push(args[index].clone());
+            index = index + 1;
+        }
+    }
     
     // 创建一个新的服务
     let server = S::new();
 
     // 根据ip创建客户端，并将其存入server中
-    for ip in ip_vec {
+    for ip in master_ip {
         {
             server.masters.write().unwrap().push({
                 {
@@ -60,7 +76,7 @@ async fn main() {
     }
 
 
-    let addr: SocketAddr = DEFAULT_ADDR.parse().unwrap();
+    let addr: SocketAddr = proxy_addr.parse().unwrap();
     let addr = volo::net::Address::from(addr);
 
     volo_gen::volo::example::ItemServiceServer::new(server)
