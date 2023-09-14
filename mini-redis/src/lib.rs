@@ -75,12 +75,12 @@ impl TxnQueue {
     }
 }
 
-struct RedisClient {
+pub struct RedisClient {
     client: volo_gen::volo::example::ItemServiceClient,
 }
 
 impl RedisClient {
-    fn new(addr: SocketAddr) -> RedisClient {
+    pub fn new(addr: SocketAddr) -> RedisClient {
         RedisClient {
             client: {
                 volo_gen::volo::example::ItemServiceClientBuilder::new("volo-example")
@@ -90,7 +90,7 @@ impl RedisClient {
         }
     }
 
-    async fn get_item(&self, req: volo_gen::volo::example::GetItemRequest) -> ::core::result::Result<volo_gen::volo::example::GetItemResponse, Error> {
+    pub async fn get_item(&self, req: volo_gen::volo::example::GetItemRequest) -> ::core::result::Result<volo_gen::volo::example::GetItemResponse, Error> {
         match self.client.get_item(req).await {
             Ok(resp) => {
                 tracing::info!("Get response: {:?}", resp);
@@ -108,8 +108,8 @@ pub struct S {
     is_master: bool,
     kv_pairs: Arc<RwLock<HashMap<String, String>>>,
     channels: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
-    op_tx: Option<Arc<Mutex<broadcast::Sender<volo_gen::volo::example::GetItemRequest>>>>,
-    log_file: Arc<AsyncMutex<File>>,
+    pub op_tx: Option<Arc<Mutex<broadcast::Sender<volo_gen::volo::example::GetItemRequest>>>>,
+    pub log_file: Arc<AsyncMutex<File>>,
     watch_keys: Arc<RwLock<HashMap<String, HashSet<String>>>>,
     txn_queue: Arc<RwLock<HashMap<usize, TxnQueue>>>,
 }
@@ -194,14 +194,20 @@ impl S {
             let req = rx.lock().await.recv().await;
             match req {
                 Ok(req) => {
+                    if req.opcode == 255 {
+                        break;
+                    }
                     let resp = slave.get_item(req).await?;
                     tracing::info!("Sync response: {:?}", resp);
                 },
                 Err(e) => {
-                    tracing::error!("Sync error: {:?}", e);
+                    tracing::warn!("Broadcast Error: {:?}", e);
                 }
             }
         }
+
+        tracing::info!("Slave {} sync task is closed", slave_addr);
+        Ok(())
     }
 }
 
@@ -330,11 +336,11 @@ impl volo_gen::volo::example::ItemService for S {
                 resp.success = true;
             }
             OPCode::SUBSCRIBE => {
-                if self.op_tx.is_none() {
+                if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
                 let key: String = _req.key_channal.into();
-                let (mut _tx, mut rx) = broadcast::channel(16);
+                let (mut _tx, mut rx) = broadcast::channel(500);
                 let mut has_channel: bool = false;
                 {
                     match {self.channels.read().unwrap().get(&key)} {
@@ -375,7 +381,7 @@ impl volo_gen::volo::example::ItemService for S {
                 }
             }
             OPCode::PUBLISH => {
-                if self.op_tx.is_none() {
+                if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
                 let key: String = _req.key_channal.into();
@@ -396,7 +402,7 @@ impl volo_gen::volo::example::ItemService for S {
                 }
             }
             OPCode::MULTI => {
-                if !self.is_master && opcode == OPCode::DEL {
+                if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
 
@@ -421,7 +427,7 @@ impl volo_gen::volo::example::ItemService for S {
                 resp.success = true;
             }
             OPCode::EXEC => {
-                if !self.is_master && opcode == OPCode::DEL {
+                if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
 
@@ -467,7 +473,7 @@ impl volo_gen::volo::example::ItemService for S {
                 resp.value_message = message.clone().into();
             }
             OPCode::WATCH => {
-                if !self.is_master && opcode == OPCode::DEL {
+                if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
 

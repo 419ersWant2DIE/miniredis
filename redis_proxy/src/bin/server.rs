@@ -85,4 +85,6 @@ async fn main() {
         .run(addr)
         .await
         .unwrap();
+
+    println!("Server listening on {}", proxy_addr);
 }
