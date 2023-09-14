@@ -1,7 +1,5 @@
 #![feature(impl_trait_in_assoc_type)]
-use std::collections::HashMap;
 use std::sync::RwLock;
-use tokio::sync::broadcast;
 use std::sync::Arc;
 use volo_gen::volo::example::ItemServiceClient;
 use std::collections::hash_map::DefaultHasher;
@@ -12,20 +10,14 @@ use anyhow::{Error, Ok};
 
 pub const DEFAULT_ADDR: &str = "[::]:8080";
 
-pub struct SBox {
-	pub kv_pairs: HashMap<String, String>,
-	pub channels: HashMap<String, broadcast::Sender<String>>,
-	pub master_redis: Vec<ItemServiceClient>,
-}
-
 pub struct S {
-	pub sb: Arc<RwLock<SBox>>,
+	pub masters: Arc<RwLock<Vec<ItemServiceClient>>>,
 }
 
 impl S {
 	pub fn new() -> S {
 		S {
-			sb: Arc::new(RwLock::new(SBox{kv_pairs: HashMap::new(), channels: HashMap::new(), master_redis: Vec::new()}))
+			masters: Arc::new(RwLock::new(Vec::new()))
 		}
 	}
 }
@@ -45,13 +37,13 @@ impl volo_gen::volo::example::ItemService for S {
 			hash.finish()
 		};
 		// 获得主节点的个数
-		let master_num = { self.sb.read().unwrap().master_redis.len() };
+		let master_num: usize =  { self.masters.read().unwrap().len() } ;
 
 		// 获得将要访问的节点的id
-		let master_id = ((hash_code as usize) + (_req.opcode as usize)) % master_num; 
+		let master_id = (hash_code as usize) % master_num; 
 
 		// 获得访问节点的客户端
-		let rpc_cli = { self.sb.read().unwrap().master_redis[master_id].clone() };
+		let rpc_cli = { self.masters.read().unwrap()[master_id].clone() };
 		match rpc_cli.get_item(_req).await {
 			::core::result::Result::Ok(resp) => {
 				Ok(resp)

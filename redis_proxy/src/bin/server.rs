@@ -17,13 +17,17 @@ async fn main() {
 
     // 根据ip创建客户端，并将其存入server中
     for ip in ip_vec {
-        server.sb.write().unwrap().master_redis.push({
-            let addr: SocketAddr = ip.parse().unwrap();
-            volo_gen::volo::example::ItemServiceClientBuilder::new("volo-example")
-                .layer_outer(LogLayer)
-                .address(addr)
-                .build()
-        });
+        {
+            server.masters.write().unwrap().push({
+                {
+                    let addr: SocketAddr = ip.parse().unwrap();
+                    volo_gen::volo::example::ItemServiceClientBuilder::new("volo-example")
+                        .layer_outer(LogLayer)
+                        .address(addr)
+                        .build()
+                }
+            });
+        }
     }
 
 
