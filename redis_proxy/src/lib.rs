@@ -4,6 +4,7 @@ use std::sync::Arc;
 use volo_gen::volo::example::ItemServiceClient;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use rand::Rng;
 
 
 use anyhow::{Error, Ok};
@@ -12,12 +13,14 @@ pub const DEFAULT_ADDR: &str = "[::]:8080";
 
 pub struct S {
 	pub masters: Arc<RwLock<Vec<ItemServiceClient>>>,
+	pub slaves: Arc<RwLock<Vec<Vec<ItemServiceClient>>>>,
 }
 
 impl S {
 	pub fn new() -> S {
 		S {
-			masters: Arc::new(RwLock::new(Vec::new()))
+			masters: Arc::new(RwLock::new(Vec::new())),
+			slaves: Arc::new(RwLock::new(Vec::new())),
 		}
 	}
 }
@@ -42,8 +45,45 @@ impl volo_gen::volo::example::ItemService for S {
 		// 获得将要访问的节点的id
 		let master_id = (hash_code as usize) % master_num; 
 
-		// 获得访问节点的客户端
-		let rpc_cli = { self.masters.read().unwrap()[master_id].clone() };
+		// 过滤主节点同步操作
+		if _req.opcode == 100 || _req.opcode == 101 {
+			return Err(::volo_thrift::AnyhowError::from(anyhow::Error::msg("Can't not handle master operations.")));
+		}
+
+		// 如果是ping操作，直接返回相关信息
+		if _req.opcode == 3 {
+			return Ok(volo_gen::volo::example::GetItemResponse {
+				opcode: 3,
+				key_channal: _req.key_channal.clone(),
+				value_message: _req.value_message.clone(),
+				success: true
+			});
+		}
+
+		// 获得访问节点的客户端，若为get操作，则从
+		let rpc_cli = match  _req.opcode == 0 {
+			true => {
+				// 获得对应集群的节点数量
+				let mut node_num = { self.slaves.read().unwrap()[master_id].len() };
+				node_num = node_num + 1;
+				// 生成随机数
+				let mut rng = rand::thread_rng();
+				let mut node_id: usize = rng.gen();
+				// 将随机数对节点数量做模
+				node_id = node_id % node_num;
+				if node_id == node_num - 1 {
+					// get主节点
+					self.masters.read().unwrap()[master_id].clone()
+				} else {
+					// get从节点
+					self.slaves.read().unwrap()[master_id][node_id].clone()
+				}
+
+			},
+			false => {
+				self.masters.read().unwrap()[master_id].clone()
+			},
+		};
 		match rpc_cli.get_item(_req).await {
 			::core::result::Result::Ok(resp) => {
 				Ok(resp)
