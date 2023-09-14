@@ -4,6 +4,8 @@ struct GetItemRequest {
     1: required i32 opcode,
     2: required string key_channal,
     3: required string value_message,
+
+    10: optional string txn_id,
 }
 
 struct GetItemResponse {

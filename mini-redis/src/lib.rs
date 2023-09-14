@@ -1,6 +1,6 @@
 #![feature(impl_trait_in_assoc_type)]
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque, HashSet},
     sync::{RwLock, Arc, Mutex},
     net::SocketAddr,
 };
@@ -14,7 +14,66 @@ use tokio::{
 };
 use anyhow::Error;
 
-pub const DEFAULT_ADDR: &str = "[::]:8080";
+#[derive(PartialEq, Eq)]
+pub enum OPCode {
+    GET = 0,
+    SET = 1,
+    DEL = 2,
+    PING = 3,
+    SUBSCRIBE = 4,
+    PUBLISH = 5,
+    SETMASTER = 100,
+    DELMASTER = 101,
+    MULTI = 200,
+    EXEC = 201,
+    WATCH = 202,
+    NOTDEFINED = 255,
+}
+
+impl From<i32> for OPCode {
+    fn from(item: i32) -> Self {
+        match item {
+            0 => OPCode::GET,
+            1 => OPCode::SET,
+            2 => OPCode::DEL,
+            3 => OPCode::PING,
+            4 => OPCode::SUBSCRIBE,
+            5 => OPCode::PUBLISH,
+            100 => OPCode::SETMASTER,
+            101 => OPCode::DELMASTER,
+            200 => OPCode::MULTI,
+            201 => OPCode::EXEC,
+            202 => OPCode::WATCH,
+            _ => OPCode::NOTDEFINED,
+        }
+    }
+}
+
+struct TxnQueue {
+    watch_id: Option<String>,
+    txn_queue: VecDeque<volo_gen::volo::example::GetItemRequest>,
+}
+
+impl TxnQueue {
+    fn new(watch_id: Option<String>) -> TxnQueue {
+        TxnQueue {
+            watch_id,
+            txn_queue: VecDeque::new(),
+        }
+    }
+
+    fn push(&mut self, req: volo_gen::volo::example::GetItemRequest) {
+        self.txn_queue.push_back(req);
+    }
+
+    fn pop(&mut self) -> Option<volo_gen::volo::example::GetItemRequest> {
+        self.txn_queue.pop_front()
+    }
+
+    fn get_watch_id(&self) -> Option<String> {
+        self.watch_id.clone()
+    }
+}
 
 struct RedisClient {
     client: volo_gen::volo::example::ItemServiceClient,
@@ -51,6 +110,8 @@ pub struct S {
     channels: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
     op_tx: Option<Arc<Mutex<broadcast::Sender<volo_gen::volo::example::GetItemRequest>>>>,
     log_file: Arc<AsyncMutex<File>>,
+    watch_keys: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    txn_queue: Arc<RwLock<HashMap<usize, TxnQueue>>>,
 }
 
 impl S {
@@ -62,6 +123,8 @@ impl S {
             true => Some(Arc::new(Mutex::new(broadcast::channel(16).0))),
             false => None,
         };
+        let watch_keys = Arc::new(RwLock::new(HashMap::new()));
+        let txn_queue = Arc::new(RwLock::new(HashMap::new()));
 
         // 检查日志文件是否存在
         if !std::path::Path::new(&log_path).exists() {
@@ -116,6 +179,8 @@ impl S {
             channels,
             op_tx,
             log_file,
+            watch_keys,
+            txn_queue,
         }
     }
 
@@ -143,51 +208,53 @@ impl S {
 unsafe impl Send for S {}
 unsafe impl Sync for S {}
 
-#[derive(PartialEq, Eq)]
-enum OPCode {
-    GET = 0,
-    SET = 1,
-    DEL = 2,
-    PING = 3,
-    SUBSCRIBE = 4,
-    PUBLISH = 5,
-    SETMASTER = 100,
-    DELMASTER = 101,
-    NOTDEFINED = 255,
-}
-
-impl From<i32> for OPCode {
-    fn from(item: i32) -> Self {
-        match item {
-            0 => OPCode::GET,
-            1 => OPCode::SET,
-            2 => OPCode::DEL,
-            3 => OPCode::PING,
-            4 => OPCode::SUBSCRIBE,
-            5 => OPCode::PUBLISH,
-            100 => OPCode::SETMASTER,
-            101 => OPCode::DELMASTER,
-            _ => OPCode::NOTDEFINED,
-        }
-    }
-}
-
 #[volo::async_trait]
 impl volo_gen::volo::example::ItemService for S {
     async fn get_item(&self, _req: volo_gen::volo::example::GetItemRequest) -> ::core::result::Result<volo_gen::volo::example::GetItemResponse, ::volo_thrift::AnyhowError>{
-        let mut resp = volo_gen::volo::example::GetItemResponse {opcode: 0, key_channal: _req.key_channal.clone(), value_message: " ".into(), success: false};
+        let mut resp = volo_gen::volo::example::GetItemResponse {
+            opcode: _req.opcode,
+            key_channal: _req.key_channal.clone(),
+            value_message: " ".into(),
+            success: false
+        };
         let opcode = OPCode::from(_req.opcode);
+        if opcode != OPCode::MULTI
+            && opcode != OPCode::EXEC
+            && opcode != OPCode::WATCH
+            && _req.txn_id.is_some()
+            && _req.txn_id.clone().unwrap().parse::<usize>().is_ok()
+        {
+            let txn_id = _req.txn_id.unwrap();
+            let txn_id = match txn_id.parse::<usize>() {
+                Ok(id) => id,
+                Err(_) => {
+                    resp.success = false;
+                    return Ok(resp);
+                }
+            };
+            let mut txn_queue_locked = self.txn_queue.write().unwrap();
+            let txn_queue = txn_queue_locked.get_mut(&txn_id).unwrap();
+            txn_queue.push(volo_gen::volo::example::GetItemRequest {
+                opcode: _req.opcode,
+                key_channal: _req.key_channal,
+                value_message: _req.value_message,
+                txn_id: None,
+            });
+            resp.value_message = "QUEUED".into();
+            resp.success = true;
+
+            return Ok(resp);
+        }
         match opcode {
             OPCode::GET => {
                 let key: String = _req.key_channal.into();
                 match self.kv_pairs.read().unwrap().get(&key) {
                     Some(value) => {
-                        resp.opcode = 0;
                         resp.value_message = value.clone().into();
                         resp.success = true;
                     },
                     None => {
-                        resp.opcode = 0;
+                        resp.value_message = "(nil)".into();
                         resp.success = false;
                     }
                 }
@@ -198,22 +265,27 @@ impl volo_gen::volo::example::ItemService for S {
                 }
                 let key: String = _req.clone().key_channal.into();
                 let val: String = _req.clone().value_message.into();
-                let is_in: bool = self.kv_pairs.read().unwrap().contains_key(&key);
-                if is_in {
-                    resp.opcode = 1;
-                    resp.success = false;
-                }
-                else {
-                    let _ = self.log_file.lock().await.write_all(format!("SET {} {}\n", _req.key_channal, _req.value_message).as_bytes()).await;
-
-                    self.kv_pairs.write().unwrap().insert(key, val);
-                    resp.opcode = 1;
-                    resp.success = true;
-                    
-                    if let Some(ref tx) = self.op_tx {
-                        let req = volo_gen::volo::example::GetItemRequest { opcode: 100, key_channal: _req.key_channal.clone(), value_message: _req.value_message.clone() };
-                        let _ = tx.lock().unwrap().send(req);
+                let _ = self.log_file.lock().await.write_all(format!("SET {} {}\n", _req.key_channal, _req.value_message).as_bytes()).await;
+                if let Some(watch_ids) = self.watch_keys.write().unwrap().get_mut(&key) {
+                    if _req.txn_id.is_some() && watch_ids.contains(_req.txn_id.clone().unwrap().as_str()) {
+                        watch_ids.retain(|x| x == &_req.txn_id.clone().unwrap().to_string());
+                    } else {
+                        watch_ids.clear();
                     }
+                }
+
+                self.kv_pairs.write().unwrap().insert(key, val);
+                resp.value_message = "OK".into();
+                resp.success = true;
+                
+                if let Some(ref tx) = self.op_tx {
+                    let req = volo_gen::volo::example::GetItemRequest {
+                        opcode: 100,
+                        key_channal: _req.key_channal.clone(),
+                        value_message: _req.value_message.clone(),
+                        txn_id: None,
+                    };
+                    let _ = tx.lock().unwrap().send(req);
                 }
             }
             OPCode::DEL | OPCode::DELMASTER=> {
@@ -225,25 +297,36 @@ impl volo_gen::volo::example::ItemService for S {
                 match is_in {
                     true => {
                         let _ = self.log_file.lock().await.write_all(format!("DEL {}\n", _req.key_channal).as_bytes()).await;
+                        if let Some(watch_ids) = self.watch_keys.write().unwrap().get_mut(&key) {
+                            if _req.txn_id.is_some() && watch_ids.contains(_req.txn_id.clone().unwrap().as_str()) {
+                                watch_ids.retain(|x| x == &_req.txn_id.clone().unwrap().to_string());
+                            } else {
+                                watch_ids.clear();
+                            }
+                        }
                         
                         self.kv_pairs.write().unwrap().remove(&key);
-                        resp.opcode = 2;
+                        resp.value_message = "1".into();
                         resp.success = true;
 
                         if let Some(ref tx) = self.op_tx {
-                            let req = volo_gen::volo::example::GetItemRequest { opcode: 101, key_channal: _req.key_channal.clone(), value_message: _req.value_message.clone() };
+                            let req = volo_gen::volo::example::GetItemRequest {
+                                opcode: 101,
+                                key_channal: _req.key_channal.clone(),
+                                value_message: _req.value_message.clone(),
+                                txn_id: None,
+                            };
                             let _ = tx.lock().unwrap().send(req);
                         }
                     },
                     false => {
-                        resp.opcode = 2;
-                        resp.success = false;
+                        resp.value_message = "0".into();
+                        resp.success = true;
                     }
-                } 
+                }
             }
             OPCode::PING => {
-                resp.opcode = 3;
-                resp.value_message = _req.value_message.clone();
+                resp.value_message = _req.value_message;
                 resp.success = true;
             }
             OPCode::SUBSCRIBE => {
@@ -268,12 +351,10 @@ impl volo_gen::volo::example::ItemService for S {
                     let mes = rx.recv().await;
                     match mes {
                         Ok(m) => {
-                            resp.opcode = 4;
                             resp.value_message = m.clone().into();
                             resp.success = true;
                         },
                         Err(_e) => {
-                            resp.opcode = 4;
                             resp.success = false;
                         }
                     }
@@ -284,12 +365,10 @@ impl volo_gen::volo::example::ItemService for S {
                     let mes = rx.recv().await;
                     match mes {
                         Ok(m) => {
-                            resp.opcode = 4;
                             resp.value_message = m.clone().into();
                             resp.success = true;
                         },
                         Err(_e) => {
-                            resp.opcode = 4;
                             resp.success = false;
                         }
                     }
@@ -304,20 +383,117 @@ impl volo_gen::volo::example::ItemService for S {
                     let info = tx.send(_req.value_message.into_string());
                     match info {
                         Ok(num) => {
-                            resp.opcode = 5;
                             resp.success = true;
                             resp.value_message = num.to_string().into();
                         },
                         Err(_) => {
-                            resp.opcode = 5;
                             resp.success = false;
                         }
                     }
                 }
                 else {
-                    resp.opcode = 5;
                     resp.success = false;
                 }
+            }
+            OPCode::MULTI => {
+                if !self.is_master && opcode == OPCode::DEL {
+                    return Err(Error::msg("The server is slave"));
+                }
+
+                let watch_id: Option<String> = match _req.txn_id {
+                    Some(txn_id) => Some(txn_id.into()),
+                    None => None,
+                };
+
+                let mut txn_queue_locked = self.txn_queue.write().unwrap();
+                let txn_id = match txn_queue_locked.len() {
+                    0 => 0,
+                    _ => {
+                        let the_max = self.txn_queue.read().unwrap();
+                        let the_max = the_max.keys().max().unwrap();
+                        *the_max + 1
+                    }
+                };
+                txn_queue_locked.insert(txn_id, TxnQueue::new(watch_id));
+
+                resp.key_channal = txn_id.to_string().into();
+                resp.value_message = "OK".into();
+                resp.success = true;
+            }
+            OPCode::EXEC => {
+                if !self.is_master && opcode == OPCode::DEL {
+                    return Err(Error::msg("The server is slave"));
+                }
+
+                let mut message = String::new();
+                resp.success = true;
+
+                if _req.txn_id.is_none() {
+                    resp.success = false;
+                    resp.value_message = "The txn_id is none".into();
+                    return Ok(resp);
+                }
+                let txn_id = _req.txn_id.unwrap().parse::<usize>().unwrap();
+                let mut txn_queue_todo = self.txn_queue.write().unwrap().remove(&txn_id).unwrap();
+                let mut can_run = true;
+
+                if let Some(watch_id) = txn_queue_todo.get_watch_id() {
+                    let watch_key = watch_id.split("_").collect::<Vec<_>>()[0].to_string();
+                    can_run = self.watch_keys.write().unwrap().get_mut(&watch_key).unwrap().remove(&watch_id);
+                }
+
+                match can_run {
+                    true => {
+                        while let Some(req) = txn_queue_todo.pop() {
+                            let result = self.get_item(req).await;
+                            match result {
+                                Ok(info) => {
+                                    message = format!("{}\n{}", message, info.value_message).into();
+                                },
+                                Err(e) => {
+                                    message = format!("{}\n{}", message, e.to_string()).into();
+                                    resp.success = false;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    false => {
+                        message = "The watch key has been changed".into();
+                        resp.success = false;
+                    }
+                }
+                message = message.trim().into();
+                resp.value_message = message.clone().into();
+            }
+            OPCode::WATCH => {
+                if !self.is_master && opcode == OPCode::DEL {
+                    return Err(Error::msg("The server is slave"));
+                }
+
+                let key = _req.key_channal.clone().to_string();
+                let is_contain = self.watch_keys.read().unwrap().contains_key(&key) && self.watch_keys.read().unwrap().get(&key).unwrap().len() > 0;
+                let watch_id = match is_contain {
+                    true => {
+                        let the_max = self.watch_keys.read().unwrap();
+                        let the_max = the_max.get(&key).unwrap().iter().max().unwrap();
+                        let the_max: Vec<&str> = the_max.split("_").collect();
+                        let the_max = the_max[1].parse::<usize>().unwrap();
+                        format!("{}_{}", key, the_max + 1)
+                    }
+                    false => format!("{}_0", key),
+                };
+
+                self.watch_keys
+                    .write()
+                    .unwrap()
+                    .entry(key.clone())
+                    .or_insert(HashSet::new())
+                    .insert(watch_id.clone());
+
+                resp.key_channal = watch_id.into();
+                resp.value_message = "OK".into();
+                resp.success = true;
             }
             OPCode::NOTDEFINED => {
                 tracing::warn!("Invalic opcode");

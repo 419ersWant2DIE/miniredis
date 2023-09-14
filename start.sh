@@ -41,7 +41,7 @@ do
                 if [[ "$i" == "${arr[0]}" ]]; then
                     for j in ${arr[@]}
                     do
-                        if [[ $j != $i ]]; then
+                        if [[ "$j" != "$i" ]]; then
                             host=$DEFAULT_HOST
                             port=${j##*:}
                             args+=("$host:$port")
@@ -63,7 +63,7 @@ do
             port=${line##*:}
             args=("cargo run --bin server $host:$port $SERVERS")
             # run the server
-            ${args[@]} & > /dev/null
+            ${args[@]}
         done
         cd ..
     fi

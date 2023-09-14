@@ -62,7 +62,7 @@ impl volo_gen::volo::example::ItemService for S {
 		}
 
 		// 获得访问节点的客户端，若为get操作，则从
-		let rpc_cli = match  _req.opcode == 0 {
+		let rpc_cli = match  _req.opcode == 0 && _req.txn_id.is_none() {
 			true => {
 				// 获得对应集群的节点数量
 				let mut node_num = { self.slaves.read().unwrap()[master_id].len() };
