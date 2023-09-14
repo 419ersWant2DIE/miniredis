@@ -59,8 +59,8 @@ do
         while read line
         do
             # split the ip address and port py the last ":"
-            host=${i%:*}
-            port=${i##*:}
+            host=${line%:*}
+            port=${line##*:}
             args=("cargo run --bin server $host:$port $SERVERS")
             # run the server
             ${args[@]} & > /dev/null
