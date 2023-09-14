@@ -3,13 +3,13 @@ use std::{
     net::SocketAddr,
     env,
 };
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
+// use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use mini_redis::{S, LogLayer};
 
 #[volo::main]
 async fn main() {
-    tracing_subscriber::registry().with(fmt::layer()).init();
+    // tracing_subscriber::registry().with(fmt::layer().with_writer(std::io::stdout)).init();
 
     let args = env::args().collect::<Vec<_>>();
     println!("{:?}", args);
