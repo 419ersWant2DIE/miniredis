@@ -8,38 +8,66 @@
 
 export PATH=$PATH:~/.cargo/bin
 
+CONF="redis.conf"
+REDIS="mini-redis"
+PROXY="redis_proxy"
+DEFAULT_HOST="127.0.0.1"
+SERVERS=""
+
 while read line
 do
     if [[ $line =~ ^\[Server\] ]]; then
-        cd mini-redis/
+        cd $REDIS
         while read line
         do
-            if [[ $line =~ ^\[::\] ]]; then
-                echo $line
-                arr=(${line//,/ })
-                for i in ${arr[@]}
-                do
-                    # split the ip address and port py the last ":"
-                    host=${i%:*}
-                    port=${i##*:}
-                    args=("cargo" "run" "--bin" "server" $host $port)
-                    # if $i is the first element of the array, add the address of the other servers
-                    if [[ "$i" == "${arr[0]}" ]]; then
-                        for j in ${arr[@]}
-                        do
-                            if [[ $j != $i ]]; then
-                                port=${j##*:}
-                                args+=("127.0.0.1:$port")
-                            fi
-                        done
-                    fi
-                    echo ${args[@]}
-                    # run the server
-                    ${args[@]} & > /dev/null
-                done
+            if [[ $line =~ ^\[Proxy\] ]]; then
+                break
             fi
+
+            # split the line by ","
+            arr=(${line//,/ })
+
+            # add the "-n" flag
+            SERVERS+=" -n"
+
+            for i in ${arr[@]}
+            do
+                # split the ip address and port py the last ":"
+                host=${i%:*}
+                port=${i##*:}
+                args=("cargo run --bin server" $host $port)
+                SERVERS+=" $DEFAULT_HOST:$port"
+                # if $i is the first element of the array, add the address of the other servers
+                if [[ "$i" == "${arr[0]}" ]]; then
+                    for j in ${arr[@]}
+                    do
+                        if [[ $j != $i ]]; then
+                            host=$DEFAULT_HOST
+                            port=${j##*:}
+                            args+=("$host:$port")
+                        fi
+                    done
+                fi
+                echo ${args[@]}
+                # run the server
+                # ${args[@]} & > /dev/null
+            done
+        done
+        cd ..
+    fi
+    if [[ $line =~ ^\[Proxy\] ]]; then
+        cd $PROXY
+        while read line
+        do
+            # split the ip address and port py the last ":"
+            host=${i%:*}
+            port=${i##*:}
+            args=("cargo run --bin server $host:$port $SERVERS")
+            echo ${args[@]}
+            # run the server
+            # ${args[@]} & > /dev/null
         done
         cd ..
     fi
     continue
-done<redis.conf
+done < $CONF
