@@ -92,10 +92,15 @@ async fn main() {
         }
         else if command[0] == "ping".to_string() {
             // ping命令
+            if command.len() > 2 {
+                println!("Usage: ping [message]");
+                continue;
+            }
             req.opcode = 3;
             // 要是有message要返回message
-            if command.len() > 1 {
-                req.value_message = command[1].clone().into();
+            req.value_message = match command.len() > 1 {
+                true => command[1].clone().into(),
+                false => "pong".into(),
             }
         }
         else if command[0] == "subscribe".to_string() {
