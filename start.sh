@@ -48,9 +48,8 @@ do
                         fi
                     done
                 fi
-                echo ${args[@]}
                 # run the server
-                # ${args[@]} & > /dev/null
+                ${args[@]} & > /dev/null
             done
         done
         cd ..
@@ -63,9 +62,8 @@ do
             host=${i%:*}
             port=${i##*:}
             args=("cargo run --bin server $host:$port $SERVERS")
-            echo ${args[@]}
             # run the server
-            # ${args[@]} & > /dev/null
+            ${args[@]} & > /dev/null
         done
         cd ..
     fi
