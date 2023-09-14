@@ -9,8 +9,6 @@ use volo_gen::volo::example::GetItemRequest;
 
 #[volo::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
-
     let args = env::args().collect::<Vec<_>>();
     println!("{:?}", args);
     if args.len() < 3 {
@@ -54,6 +52,8 @@ async fn main() {
 
     // If this is a master, we need to wait for all the requests to be processed
     // For exapmle, we need to wait for all requests are broadcasted to slaves
+    tracing_subscriber::fmt::init();    // place it here only for presentation
+
     if let Some(op_tx) = op_tx {
         tracing::info!("Server {}:{} is closing spawned tasks by using broadcast channel", host, port);
         match op_tx.lock().unwrap().send(GetItemRequest {
@@ -65,7 +65,7 @@ async fn main() {
             Ok(_) => tracing::info!("Server {}:{} is closed spawned tasks successfully", host, port),
             Err(e) => tracing::error!("Server {}:{} is closed spawned tasks failed: {}", host, port, e),
         };
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
     // Sync log file to disk to avoid data loss

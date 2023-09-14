@@ -7,7 +7,7 @@ mod common;
 
 lazy_static! {
     static ref CLIENT: volo_gen::volo::example::ItemServiceClient = {
-            let addr: SocketAddr = "127.0.0.1:41000".parse().unwrap();
+            let addr: SocketAddr = "127.0.0.1:45000".parse().unwrap();
             volo_gen::volo::example::ItemServiceClientBuilder::new("volo-example")
                 .address(addr)
                 .build()
@@ -33,8 +33,6 @@ pub async fn func(opcode:&i32, key:&str, value: Option<&String>)  {
         _ => {}
     };
 }
-
-
 
 async fn get(key:&str) -> Option<String>{
     let req = volo_gen::volo::example::GetItemRequest {
