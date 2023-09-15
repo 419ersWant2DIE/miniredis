@@ -2,6 +2,8 @@ use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use volo_gen;
+use std::io::Write;
+use ansi_term::Colour::Green;
 
 mod common;
 
@@ -94,72 +96,80 @@ async fn main() {
     for i in 1..range_ + 1 {
         map.insert(i.to_string(), common::rand_str());
     }
-    println!("---------1----------");
     //get
+    print!("1. get the value of a key that does not exist: ");
+    std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&0, i.to_string().as_str(),None).await;
     }
-    println!("PASS");
+    println!("{}", Green.paint("PASS"));
 
-    println!("---------2----------");
     //set
+    print!("2. set the value of a key that does not exist: ");
+    std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&1, i.to_string().as_str(),map.get(&i.to_string())).await;
     }
-    println!("PASS");
+    println!("{}", Green.paint("PASS"));
 
-    println!("---------3----------");
     //get
+    print!("3. get the value of a key that does not exist: ");
+    std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&0, i.to_string().as_str(),map.get(&i.to_string())).await;
     }
-    println!("PASS");
+    println!("{}", Green.paint("PASS"));
 
-    println!("---------4----------");
     //del
+    print!("4. del the value of a key that does not exist: ");
+    std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&2, i.to_string().as_str(),None).await;
     }
-    println!("PASS");
+    println!("{}", Green.paint("PASS"));
 
-    println!("---------5----------");
     //get
+    print!("5. get the value of a key that does not exist: ");
+    std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&0, i.to_string().as_str(),None).await;
     }
-    println!("PASS");
+    println!("{}", Green.paint("PASS"));
 
-    println!("---------6----------");
     //set
+    print!("6. set the value of a key that does not exist: ");
+    std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&1, i.to_string().as_str(),map.get(&i.to_string())).await;
     }
-    println!("PASS");
+    println!("{}", Green.paint("PASS"));
 
     let mut a = String::new();
     println!("请按任意键继续...");
     std::io::stdin().read_line(&mut a).expect("zzxsb");
 
-    println!("---------7----------");
     //get
+    print!("7. set the value of a key that does not exist: ");
+    std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&0, i.to_string().as_str(),map.get(&i.to_string())).await;
     }
-    println!("PASS");
+    println!("{}", Green.paint("PASS"));
 
-    println!("---------8----------");
     //del
+    print!("8. del the value of a key that does not exist: ");
+    std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&2, i.to_string().as_str(),None).await;
     }
-    println!("PASS");
+    println!("{}", Green.paint("PASS"));
 
-    println!("---------9----------");
     //get
+    print!("9. get the value of a key that does not exist: ");
     for i in 1..range_ + 1 {
         func(&0, i.to_string().as_str(),None).await;
     }
-    println!("PASS");
+    println!("{}", Green.paint("PASS"));
 
 }
 
