@@ -105,7 +105,7 @@ async fn main() {
     println!("{}", Green.paint("PASS"));
 
     //set
-    print!("2. set the value of a key that does not exist: ");
+    print!("2. set the value of a key: ");
     std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&1, i.to_string().as_str(),map.get(&i.to_string())).await;
@@ -113,7 +113,7 @@ async fn main() {
     println!("{}", Green.paint("PASS"));
 
     //get
-    print!("3. get the value of a key that does not exist: ");
+    print!("3. get the value of a key and compare it to the value that was set: ");
     std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&0, i.to_string().as_str(),map.get(&i.to_string())).await;
@@ -121,7 +121,7 @@ async fn main() {
     println!("{}", Green.paint("PASS"));
 
     //del
-    print!("4. del the value of a key that does not exist: ");
+    print!("4. del the value of the set keys: ");
     std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&2, i.to_string().as_str(),None).await;
@@ -129,7 +129,7 @@ async fn main() {
     println!("{}", Green.paint("PASS"));
 
     //get
-    print!("5. get the value of a key that does not exist: ");
+    print!("5. get the value of a key that was deleted: ");
     std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&0, i.to_string().as_str(),None).await;
@@ -149,7 +149,7 @@ async fn main() {
     std::io::stdin().read_line(&mut a).expect("zzxsb");
 
     //get
-    print!("7. set the value of a key that does not exist: ");
+    print!("7. get the value of a key that is recovered from the AOF log: ");
     std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&0, i.to_string().as_str(),map.get(&i.to_string())).await;
@@ -157,7 +157,7 @@ async fn main() {
     println!("{}", Green.paint("PASS"));
 
     //del
-    print!("8. del the value of a key that does not exist: ");
+    print!("8. del the value of keys that is recovered from the AOF log: ");
     std::io::stdout().flush().unwrap();
     for i in 1..range_ + 1 {
         func(&2, i.to_string().as_str(),None).await;
@@ -165,7 +165,7 @@ async fn main() {
     println!("{}", Green.paint("PASS"));
 
     //get
-    print!("9. get the value of a key that does not exist: ");
+    print!("9. get the value of a key that was deleted: ");
     for i in 1..range_ + 1 {
         func(&0, i.to_string().as_str(),None).await;
     }
