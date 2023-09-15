@@ -59,6 +59,19 @@ cargo run --bin client 127.0.0.1:41000
 mini-redis> 
 ```
 
+## 测试
+
+已有三个测试，可以进入 `mini-redis/` 目录下运行
+
+```shell
+cd mini-redis/
+rm log/*
+cargo run --example test_aof    # 中途需要重启服务器，即在启动脚本
+                                # start_test.sh/start_present.sh 的终端中按下 ctrl-c
+cargo run --example test_master_slave
+cargo run --example test_proxy
+```
+
 ### 附录
 
 #### 指令
