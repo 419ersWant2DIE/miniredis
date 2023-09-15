@@ -2,9 +2,9 @@
 
 ## 编译运行方法
 
-需要分别编译proxy节点的工程文件`redis_proxy/`和redis节点的工程文件`mini_redis/`。
+需要分别编译 proxy 节点的工程文件 `redis_proxy/` 和redis节点的工程文件 `mini_redis/`。
 
-编译proxy节点工程文件
+编译 proxy 节点工程文件
 
 ```shell
 cd redis_proxy/
@@ -12,7 +12,7 @@ cargo update
 cargo build
 ```
 
-编译redis节点的工程文件
+编译 redis 节点的工程文件
 
 ```shell
 cd mini-redis/
@@ -20,14 +20,17 @@ cargo update
 cargo build
 ```
 
-编辑配置文件`redis.conf`，配置文件格式如下所示
+编辑配置文件 `redis.conf`，配置文件格式如下所示
 
 ```shell
-# 定义redis集群的ip地址和端口，每行代表一个主从redis架构，多行表示整个集群有多个主从架构，每行中第一个为主节点，后续节点为从节点
+# 定义 redis 集群的 ip 地址和端口，每行代表一个主从 redis 架构
+# 多行表示整个集群有多个主从架构，每行中第一个为主节点，后续节点为从节点
+# 一个群组只能有一个主服务器，且至少含有一个从服务器
+# 此外群组数目、每个群组服务器数目不做限制
 [Server]
 [::]:45000, [::]:45001, [::]:45002
 [::]:46000, [::]:46001, [::]:46002
-# 定义了proxy的ip和端口
+# 定义了 proxy 的 ip 和端口
 [Proxy]
 [::]:41000
 ```
@@ -44,19 +47,23 @@ cargo build
 
 ## 连接集群进行访问
 
-使用redis节点的工程文件`mini_redis/`中带有的client即可进行访问
+使用 redis 节点的工程文件 `mini_redis/` 中带有的 client 即可进行访问
 
 ```shell
 cd mini-redis/
 cargo run --bin client 127.0.0.1:41000
 ```
 
-运行时携带了命令行参数，其为要连接的服务端的ip地址。运行后服务端会进入一个交互端口，会出现以下提示符，直接在其后输入命令即可
+运行时携带了命令行参数，其为要连接的服务端的 ip 地址，例如上例为实例连接 proxy 节点。运行后服务端会进入一个交互端口，会出现以下提示符，直接在其后输入命令即可
 ```
 mini-redis> 
 ```
 
-## get指令
+### 附录
+
+#### 指令
+
+##### get
 
 其使用格式为
 ```
@@ -70,7 +77,7 @@ mini-redis>  get 123
 456
 ```
 
-不存在则会返回`(nil)`表示空
+不存在则会返回 `(nil)` 表示空
 
 ```s
 mini-redis>  get 3
@@ -78,7 +85,7 @@ mini-redis>  get 3
 (nil)
 ```
 
-## set指令
+##### set
 
 其使用格式为
 ```
@@ -92,7 +99,7 @@ mini-redis>  set 456 789
 OK
 ```
 
-## del指令
+##### del
 
 其使用格式为
 ```
@@ -106,14 +113,14 @@ mini-redis>  del 456
 1
 ```
 
-## ping
+##### ping
 
 用法
 ```
 ping [message]
 ```
 
-若连接成功，且没有指定输出内容，则输出"pong"，若连接已经失效，则直接报error
+若连接成功，且没有指定输出内容，则输出 "pong"，若连接已经失效，则直接报 error
 ```s
 mini-redis>  ping    
 2023-09-11T16:45:51.690397Z  INFO mini_redis: Request took 1ms
@@ -127,30 +134,28 @@ mini-redis>  ping 123
 123
 ```
 
+##### subscribe
 
-
-## subscribe
-
-开启此命令后会进入监听channel的状态，除非主动ctrl-c，不然程序会一直监听，语法如下
+开启此命令后会进入监听 channel的状态，除非主动 ctrl-c ，不然程序会一直监听，语法如下
 ```
 subscribe <channal_name>
 ```
 
-进入监听后会进入如下状态，等待publish
+进入监听后会进入如下状态，等待 publish
 ```s
 mini-redis>  subscribe 456
 The message is as follow: 
 
 ```
 
-## publish指令
+##### publish
 
-publish指令格式如下
+publish 指令格式如下
 ```
 publish <channel_name> <message>
 ```
 
-当publish后会返回收到信息的客户端的个数
+当 publish 后会返回收到信息的客户端的个数
 ```s
 mini-redis>  publish 456 shabi
 2023-09-11T16:49:44.928856Z  INFO mini_redis: Request took 2ms
@@ -166,18 +171,54 @@ shabi
 
 ```
 
-若没有subscriber时则会输出以下信息
+若没有 subscriber 时则会输出以下信息
 ```s
 mini-redis>  publish 456 7
 2023-09-11T16:50:48.907189Z  INFO mini_redis: Request took 1ms
 No subscriber found
 ```
 
-## exit
+##### multi
+
+> 目前只支持直连主节点
+
+multi 指令格式如下：
+
+``` shell
+multi
+```
+
+主服务端会返回一个 `txn_id` 作为事务的标识，所有之后发出的基础任务都会被压入任务队列，直到 exec 执行。
+
+##### exec
+
+> 目前只支持直连主节点
+
+exec 指令格式如下：
+
+``` shell
+exec
+```
+
+主服务端会根据客户端发送的 `txn_id` 对事务对应的任务队列逐一弹出执行。有关 [watch](#watch) 的说明如下一条目所示。
+
+##### watch
+
+> 目前只支持直连主节点
+
+watch 指令格式如下：
+
+``` shell
+watch <key>
+```
+
+在 watch 某一键值时，在下一个事务发出 exec 时，如果 watch 与 exec 之间该键值被**除自己之外**的客户端修改，则 exec 执行失败。
+
+##### exit
 
 输入该指令退客户端
 
-## 敏感词过滤
+#### 中间件使用 - 敏感词过滤
 
 ```s
 mini-redis>  set 123 傻逼

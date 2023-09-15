@@ -14,6 +14,7 @@ use tokio::{
 };
 use anyhow::Error;
 
+// the enum for opcode
 #[derive(PartialEq, Eq)]
 pub enum OPCode {
     GET = 0,
@@ -30,6 +31,7 @@ pub enum OPCode {
     NOTDEFINED = 255,
 }
 
+// impl from for opcode
 impl From<i32> for OPCode {
     fn from(item: i32) -> Self {
         match item {
@@ -49,8 +51,9 @@ impl From<i32> for OPCode {
     }
 }
 
+// TxnQueue is used to store the transaction task
 struct TxnQueue {
-    watch_id: Option<String>,
+    watch_id: Option<String>,   // store the watch_id to check if the watch key has been changed
     txn_queue: VecDeque<volo_gen::volo::example::GetItemRequest>,
 }
 
@@ -75,6 +78,7 @@ impl TxnQueue {
     }
 }
 
+// package the redis client
 pub struct RedisClient {
     client: volo_gen::volo::example::ItemServiceClient,
 }
@@ -106,12 +110,12 @@ impl RedisClient {
 
 pub struct S {
     is_master: bool,
-    kv_pairs: Arc<RwLock<HashMap<String, String>>>,
-    channels: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
+    kv_pairs: Arc<RwLock<HashMap<String, String>>>,                     // store the key-value pairs
+    channels: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,  // store the channel and the sender
     pub op_tx: Option<Arc<Mutex<broadcast::Sender<volo_gen::volo::example::GetItemRequest>>>>,
     pub log_file: Arc<AsyncMutex<File>>,
-    watch_keys: Arc<RwLock<HashMap<String, HashSet<String>>>>,
-    txn_queue: Arc<RwLock<HashMap<usize, TxnQueue>>>,
+    watch_keys: Arc<RwLock<HashMap<String, HashSet<String>>>>,          // store the watch key and watch_id
+    txn_queue: Arc<RwLock<HashMap<usize, TxnQueue>>>,                   // store the transaction task
 }
 
 impl S {
@@ -126,12 +130,12 @@ impl S {
         let watch_keys = Arc::new(RwLock::new(HashMap::new()));
         let txn_queue = Arc::new(RwLock::new(HashMap::new()));
 
-        // 检查日志文件是否存在
+        // check if the log file exists
         if !std::path::Path::new(&log_path).exists() {
             std::fs::create_dir_all("log").unwrap();
         }
         let log_file = OpenOptions::new()
-            .create(true)
+            .create(true)   // create the file if it does not exist
             .read(true)
             .append(true)
             .open(log_path)
@@ -140,7 +144,7 @@ impl S {
 
         tracing::info!("Start recovery from log file");
 
-        // 从日志文件中恢复数据
+        // recovery from log file
         let log_file = Arc::new(AsyncMutex::new(log_file));
         let mut buf = String::new();
         let _ = log_file.clone().lock().await.read_to_string(&mut buf).await;
@@ -166,6 +170,7 @@ impl S {
 
         tracing::info!("Complete recovery from log file");
 
+        // if it is master node, create the sync task to sync data to slave nodes
         if is_master {
             for addr in slave_addr {
                 let operation_rx = Arc::new(AsyncMutex::new(op_tx.as_ref().unwrap().lock().unwrap().subscribe()));
@@ -188,15 +193,19 @@ impl S {
         slave_addr: SocketAddr,
         rx: Arc<AsyncMutex<broadcast::Receiver<volo_gen::volo::example::GetItemRequest>>>,
     ) -> Result<(), Error> {
+        // create the redis client
         let slave = RedisClient::new(slave_addr);
         
         loop {
+            // receive the request from broadcast channel
             let req = rx.lock().await.recv().await;
             match req {
                 Ok(req) => {
+                    // if the opcode is 255, it means the task is closed
                     if req.opcode == 255 {
                         break;
                     }
+                    // send the request to slave node
                     let resp = slave.get_item(req).await?;
                     tracing::info!("Sync response: {:?}", resp);
                 },
@@ -224,6 +233,7 @@ impl volo_gen::volo::example::ItemService for S {
             success: false
         };
         let opcode = OPCode::from(_req.opcode);
+        // check if need to push the request to transaction task queue
         if opcode != OPCode::MULTI
             && opcode != OPCode::EXEC
             && opcode != OPCode::WATCH
@@ -266,6 +276,8 @@ impl volo_gen::volo::example::ItemService for S {
                 }
             }
             OPCode::SET | OPCode::SETMASTER => {
+                // prevent the slave node from setting the key-value pair
+                // unless the opcode is SETMASTER, which is sent by master node
                 if !self.is_master && opcode == OPCode::SET {
                     return Err(Error::msg("The server is slave"));
                 }
@@ -286,15 +298,17 @@ impl volo_gen::volo::example::ItemService for S {
                 
                 if let Some(ref tx) = self.op_tx {
                     let req = volo_gen::volo::example::GetItemRequest {
-                        opcode: 100,
+                        opcode: 100,    // set the opcode to 100, which is SETMASTER
                         key_channal: _req.key_channal.clone(),
                         value_message: _req.value_message.clone(),
                         txn_id: None,
                     };
+                    // send the request to broadcast channel
                     let _ = tx.lock().unwrap().send(req);
                 }
             }
             OPCode::DEL | OPCode::DELMASTER=> {
+                // prevent the slave node from deleting the key-value pair
                 if !self.is_master && opcode == OPCode::DEL {
                     return Err(Error::msg("The server is slave"));
                 }
@@ -317,11 +331,12 @@ impl volo_gen::volo::example::ItemService for S {
 
                         if let Some(ref tx) = self.op_tx {
                             let req = volo_gen::volo::example::GetItemRequest {
-                                opcode: 101,
+                                opcode: 101,    // set the opcode to 101, which is DELMASTER
                                 key_channal: _req.key_channal.clone(),
                                 value_message: _req.value_message.clone(),
                                 txn_id: None,
                             };
+                            // send the request to broadcast channel
                             let _ = tx.lock().unwrap().send(req);
                         }
                     },
@@ -336,6 +351,7 @@ impl volo_gen::volo::example::ItemService for S {
                 resp.success = true;
             }
             OPCode::SUBSCRIBE => {
+                // prevent the slave node from subscribing the channel
                 if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
@@ -381,6 +397,7 @@ impl volo_gen::volo::example::ItemService for S {
                 }
             }
             OPCode::PUBLISH => {
+                // prevent the slave node from publishing the message
                 if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
@@ -402,15 +419,21 @@ impl volo_gen::volo::example::ItemService for S {
                 }
             }
             OPCode::MULTI => {
+                // prevent the slave node from starting the transaction
                 if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
 
+                // check if the txn_id is valid
+                // if so, it means the transaction has some key watched
                 let watch_id: Option<String> = match _req.txn_id {
                     Some(txn_id) => Some(txn_id.into()),
                     None => None,
                 };
 
+                // define the txn_id by the txn_queue
+                // if the txn_queue is empty, the txn_id is 0
+                // else the txn_id is the max txn_id plus 1
                 let mut txn_queue_locked = self.txn_queue.write().unwrap();
                 let txn_id = match txn_queue_locked.len() {
                     0 => 0,
@@ -427,13 +450,16 @@ impl volo_gen::volo::example::ItemService for S {
                 resp.success = true;
             }
             OPCode::EXEC => {
+                // prevent the slave node from executing the transaction
                 if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
 
+                // message is used to collect the messages of each request in the transaction
                 let mut message = String::new();
                 resp.success = true;
 
+                // check if the txn_id is valid
                 if _req.txn_id.is_none() {
                     resp.success = false;
                     resp.value_message = "The txn_id is none".into();
@@ -443,11 +469,13 @@ impl volo_gen::volo::example::ItemService for S {
                 let mut txn_queue_todo = self.txn_queue.write().unwrap().remove(&txn_id).unwrap();
                 let mut can_run = true;
 
+                // check if the watch key has been changed
                 if let Some(watch_id) = txn_queue_todo.get_watch_id() {
                     let watch_key = watch_id.split("_").collect::<Vec<_>>()[0].to_string();
                     can_run = self.watch_keys.write().unwrap().get_mut(&watch_key).unwrap().remove(&watch_id);
                 }
 
+                // execute the transaction
                 match can_run {
                     true => {
                         while let Some(req) = txn_queue_todo.pop() {
@@ -473,10 +501,15 @@ impl volo_gen::volo::example::ItemService for S {
                 resp.value_message = message.clone().into();
             }
             OPCode::WATCH => {
+                // prevent the slave node from watching the key
                 if !self.is_master {
                     return Err(Error::msg("The server is slave"));
                 }
 
+                // determine the watch_id
+                // for example, to watch key "demo",
+                // if no other watcher, the watch_id is "demo_0"
+                // if there are already some watchers, the watch_id is "demo_n" where n is the max number plus 1
                 let key = _req.key_channal.clone().to_string();
                 let is_contain = self.watch_keys.read().unwrap().contains_key(&key) && self.watch_keys.read().unwrap().get(&key).unwrap().len() > 0;
                 let watch_id = match is_contain {

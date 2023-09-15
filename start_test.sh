@@ -20,11 +20,17 @@ SERVERS=""
 
 while read line
 do
+    if [[ $line =~ ^# ]]; then
+        continue
+    fi
     if [[ $line =~ ^\[Server\] ]]; then
         cd $REDIS
         $BUILD
         while read line
         do
+            if [[ $line =~ ^# ]]; then
+                continue
+            fi
             if [[ $line =~ ^\[Proxy\] ]]; then
                 break
             fi
@@ -64,6 +70,9 @@ do
         $BUILD
         while read line
         do
+            if [[ $line =~ ^# ]]; then
+                continue
+            fi
             # split the ip address and port py the last ":"
             host=${line%:*}
             port=${line##*:}

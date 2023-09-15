@@ -9,12 +9,14 @@ use volo_gen::volo::example::GetItemRequest;
 
 #[volo::main]
 async fn main() {
+    // get args from env
     let args = env::args().collect::<Vec<_>>();
     println!("{:?}", args);
     if args.len() < 3 {
         panic!("Usage: {} <host> <port> [slave_addr]", args[0]);
     }
 
+    // get host, port and judge if it is a master
     let host = args.get(1).unwrap();
     let port = args.get(2).unwrap();
     let slave_addr = args[3..]
@@ -24,6 +26,7 @@ async fn main() {
         .collect::<Vec<_>>();
     let is_master = !slave_addr.is_empty();
 
+    // get SocketAddr and log_path
     let addr = format!("{}:{}", host, port).parse::<SocketAddr>().unwrap();
     let addr = volo::net::Address::from(addr);
     let log_path = format!(
@@ -36,14 +39,17 @@ async fn main() {
         }
     );
 
+    // create server
     let server = S::new(slave_addr, log_path.as_str()).await;
 
+    // store log_file and op_tx for graceful shutdown
     let log_file = server.log_file.clone();
     let op_tx = match is_master {
         true => Some(server.op_tx.as_ref().unwrap().clone()),
         false => None,
     };
 
+    // run server
     volo_gen::volo::example::ItemServiceServer::new(server)
         .layer_front(LogLayer)
         .run(addr)
