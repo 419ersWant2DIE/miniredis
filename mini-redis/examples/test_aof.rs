@@ -91,7 +91,7 @@ async fn del(key:&str) {
 
 #[tokio::main]
 async fn main() {
-    let range_ = 500;
+    let range_ = 100;
     let mut map : HashMap<String,String> = HashMap::new(); 
     for i in 1..range_ + 1 {
         map.insert(i.to_string(), common::rand_str());
@@ -147,6 +147,7 @@ async fn main() {
     let mut a = String::new();
     println!("请按任意键继续...");
     std::io::stdin().read_line(&mut a).expect("zzxsb");
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     //get
     print!("7. get the value of a key that is recovered from the AOF log: ");
