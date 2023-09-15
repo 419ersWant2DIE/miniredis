@@ -36,7 +36,8 @@ cargo build
 
 ```shell
 # 回到工程根目录
-./start.sh
+./start_present.sh  # cargo run
+./start_test.sh     # use release version
 ```
 
 此时整个服务redis集群完成启动
